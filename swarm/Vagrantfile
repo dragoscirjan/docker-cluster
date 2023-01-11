@@ -1,0 +1,37 @@
+Vagrant.configure(2) do |config|
+
+  (1..2).each do |i|
+    config.vm.define "swarm-#{i}" do |s|
+      s.ssh.forward_agent = true
+      s.vm.box = "ubuntu/jammy64"
+      if i == 1
+        s.vm.hostname = "swarm-master"
+      else
+        s.vm.hostname = "swarm-node#{i}"
+      end
+      s.vm.network "private_network", ip: "192.168.56.10#{i}", netmask: "255.255.255.0", auto_config: true, virtualbox__intnet: "swarm-net"
+      s.vm.network "public_network", use_dhcp_assigned_default_route: true
+      s.vm.provider "virtualbox" do |v|
+        v.name = "swarm-#{i}"
+        v.cpus = 2
+        v.memory = 3072
+        v.gui = false
+      end
+
+      if i == 1
+        # s.vm.provision :shell, path: "scripts/bootstrap_master.sh", args: ["192.168.56.101"]
+        s.vm.provision :shell do |c|
+          c.inline = "bash /vagrant/scripts/bootstrap_master.sh $1"
+          c.args = ["192.168.56.101"]
+        end
+      else
+        # s.vm.provision :shell, path: "scripts/bootstrap_worker.sh", args: ["192.168.56.101", "192.168.56.10#{i}"]
+        s.vm.provision :shell do |c|
+          c.inline = "bash /vagrant/scripts/bootstrap_worker.sh $1"
+          c.args = ["192.168.56.101"]
+        end
+      end
+    end
+  end
+
+end
