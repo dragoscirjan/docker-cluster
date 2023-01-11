@@ -1,8 +1,7 @@
 Vagrant.configure(2) do |config|
 
-  (1..2).each do |i|
-    config.vm.define "k8s#{i}" do |s|
-    # config.vm.define "k8s-#{i}" do |s|
+  (1..3).each do |i|
+    config.vm.define "k8s-#{i}" do |s|
       s.ssh.forward_agent = true
       s.vm.box = "ubuntu/focal64"
       s.vm.hostname = "k8s-#{i}"
@@ -17,13 +16,18 @@ Vagrant.configure(2) do |config|
 
       if i == 1
         s.vm.provision :shell do |c|
-          c.inline = "bash /vagrant/scripts/bootstrap_master.sh $1"
+          c.inline = "bash /vagrant/scripts/bootstrap_registry.sh $1"
           c.args = ["192.168.56.101"]
+        end
+      elsif i == 2
+        s.vm.provision :shell do |c|
+          c.inline = "bash /vagrant/scripts/bootstrap_master.sh $1 $2"
+          c.args = ["192.168.56.101", "192.168.56.102"]
         end
       else
         s.vm.provision :shell do |c|
-          c.inline = "bash /vagrant/scripts/bootstrap_worker.sh $1"
-          c.args = ["192.168.56.101", "192.168.56.10#{i}"]
+          c.inline = "bash /vagrant/scripts/bootstrap_worker.sh $1 $2 $3"
+          c.args = ["192.168.56.101", "192.168.56.102", "192.168.56.10#{i}"]
         end
       end
     end

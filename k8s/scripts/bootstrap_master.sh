@@ -3,22 +3,25 @@ set -ex
 
 config_path="/vagrant/configs"
 
+REPOSITORY_ADDR="$1"
+
+ADVERTISE_ADDR="$2"
+
+# if [ "$ADVERTISE_ADDR" == "" ]; then
+#     # ADVERTISE_ADDR=$(ip addr show | grep -E "inet [0-9]" | grep -Ev " (lo|docker)" | tail -n 1 | awk '{print $2}' | awk -F'/' '{print $1}')
+#     ADVERTISE_ADDR="$(ip --json a s | jq -r '.[] | if .ifname == "enp0s8" then .addr_info[] | if .family == "inet" then .local else empty end else empty end')"
+# fi
+
 
 #
 # Install necessary packages
 #
-bash $(dirname $0)/bootstrap.sh
 
+bash $(dirname $0)/bootstrap.sh $REPOSITORY_ADDR
 
 #
 # Configure master
 #
-
-ADVERTISE_ADDR="$1"
-if [ "$ADVERTISE_ADDR" == "" ]; then
-    # ADVERTISE_ADDR=$(ip addr show | grep -E "inet [0-9]" | grep -Ev " (lo|docker)" | tail -n 1 | awk '{print $2}' | awk -F'/' '{print $1}')
-    ADVERTISE_ADDR="$(ip --json a s | jq -r '.[] | if .ifname == "enp0s8" then .addr_info[] | if .family == "inet" then .local else empty end else empty end')"
-fi
 
 kubeadm init \
     --apiserver-advertise-address=$ADVERTISE_ADDR \
@@ -38,11 +41,8 @@ sudo chown "$(id -u)":"$(id -g)" "$HOME"/.kube/config
 #
 # Create K8S Node Join Script
 #
-if [ -d $config_path ]; then
-  rm -f $config_path/*
-else
-  mkdir -p $config_path
-fi
+
+mkdir -p $config_path
 
 cp -i /etc/kubernetes/admin.conf $config_path/config
 touch $config_path/join.sh
@@ -105,3 +105,14 @@ mkdir -p /home/vagrant/.kube
 sudo cp -i $config_path/config /home/vagrant/.kube/
 sudo chown 1000:1000 /home/vagrant/.kube/config
 EOF
+
+#
+# Private registry (comment if not required)
+#
+
+# @see https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+
+
+kubectl create secret docker-registry regcred --docker-server=$REPOSITORY_ADDR --docker-username=testuser --docker-password=testpassword
+
+kubectl get secret regcred --output=yaml

@@ -1,6 +1,8 @@
 #! /bin/bash
 set -ex
 
+REPOSITORY_ADDR="$1"
+
 KUBERNETES_VERSION="1.23.6-00"
 
 # #
@@ -54,7 +56,8 @@ tee /etc/docker/daemon.json <<EOF
   "log-opts": {
     "max-size": "100m"
   },
-  "storage-driver": "overlay2"
+  "storage-driver": "overlay2",
+  "insecure-registries" : ["$REPOSITORY_ADDR:5000"]
 }
 EOF
 
