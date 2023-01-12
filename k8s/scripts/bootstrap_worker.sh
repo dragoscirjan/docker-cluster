@@ -39,23 +39,24 @@ done
 # Configure default user
 # @see https://docs.docker.com/registry/insecure/
 #
+KUBECTL_ARGS=--overwrite
 sudo -i -u vagrant bash << EOF
 whoami
 mkdir -p /home/vagrant/.kube
 sudo cp -i $config_path/config /home/vagrant/.kube/
 sudo chown 1000:1000 /home/vagrant/.kube/config
 NODENAME=$(hostname -s)
-kubectl label node $(hostname -s) node-role.kubernetes.io/worker=worker
+kubectl label node $(hostname -s) node-role.kubernetes.io/worker=worker $KUBECTL_ARGS
 EOF
 
 #
 # Private registry (comment if not required)
 #
 
-# bash /varant/scripts/registry.sh
-
+sudo -i -u vagrant bash << EOF
 kubectl delete secret regcred || true
 
 kubectl create secret docker-registry regcred --docker-server=$REPOSITORY_ADDR --docker-username=testuser --docker-password=testpassword
 
 kubectl get secret regcred --output=yaml
+EOF

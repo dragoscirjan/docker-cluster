@@ -1,0 +1,9 @@
+containers: 
+— name: kube-flannel 
+  image: quay.io/coreos/flannel:v0.15.0 
+  command:
+  — /opt/bin/flanneld
+  args:
+  — --ip-masq 
+  — --kube-subnet-mgr 
+  — --iface=enp0s8

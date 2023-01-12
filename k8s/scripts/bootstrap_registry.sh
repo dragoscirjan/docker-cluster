@@ -5,7 +5,6 @@ set -ex
 # @see https://docs.docker.com/registry/deploying/
 #
 
-
 config_path="/vagrant/configs"
 
 #
@@ -23,25 +22,8 @@ apt install -y apt-transport-https \
 #
 # Docker install
 #
-curl -sSL https://get.docker.com | bash
 
-mkdir -p /etc/systemd/system/docker.service.d
-
-tee /etc/docker/daemon.json <<EOF
-{
-  "exec-opts": ["native.cgroupdriver=systemd"],
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "100m"
-  },
-  "storage-driver": "overlay2"
-}
-EOF
-
-systemctl daemon-reload
-systemctl enable docker
-systemctl restart docker
-systemctl status docker
+bash $(dirname $0)/bootstrap_docker.sh
 
 #
 # Auth File

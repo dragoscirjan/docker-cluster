@@ -10,8 +10,10 @@ back_to=$(pwd)
 
 cd $(dirname $0)
 
+kubectl delete pod py-app || true
+
 kubectl apply -f pod.yml
-kubectl get pod private-reg
+kubectl get pod py-app
 
 
 cd $back_to

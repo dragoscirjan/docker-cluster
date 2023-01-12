@@ -48,15 +48,26 @@ cp -i /etc/kubernetes/admin.conf $config_path/config
 touch $config_path/join.sh
 chmod +x $config_path/join.sh
 
-echo "$(kubeadm token create --print-join-command) --cri-socket=/var/run/crio/crio.sock" > $config_path/join.sh
+tee $config_path/join.sh <<EOF 
+#! /bin/bash
+set -ex
+
+$(kubeadm token create --print-join-command) --cri-socket=/var/run/crio/crio.sock
+EOF
 
 #
 # Install Calico Network Plugin
 #
 
-curl https://docs.projectcalico.org/manifests/calico.yaml -O
+# curl https://docs.projectcalico.org/manifests/calico.yaml -O
+# kubectl apply -f calico.yaml
 
-kubectl apply -f calico.yaml
+
+#
+# Installing Flannel Network Plugin
+#
+
+kubectl apply -f /vagrant/scripts/kube-flannel.yml
 
 #
 # Install Metrics Server
@@ -108,11 +119,26 @@ EOF
 
 #
 # Private registry (comment if not required)
+# @see https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/1
 #
 
-# @see https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
-
+sudo -i -u vagrant bash << EOF
+kubectl delete secret regcred || true
 
 kubectl create secret docker-registry regcred --docker-server=$REPOSITORY_ADDR --docker-username=testuser --docker-password=testpassword
 
 kubectl get secret regcred --output=yaml
+EOF
+
+#
+# Install ArgoCD
+#
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+tee $config_path/configs/get-argocd-pwd.sh <<EOF
+# /bin/bash
+set -ex
+
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+EOF
