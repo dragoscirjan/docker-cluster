@@ -42,6 +42,9 @@ apt install -y apt-transport-https \
   net-tools \
   openssh-server
 
+curl -L -o /usr/bin/yq https://github.com/mikefarah/yq/releases/download/v4.30.8/yq_linux_amd64
+chmod 755 /usr/bin/yq
+
 #
 # Docker install
 #

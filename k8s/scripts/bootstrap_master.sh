@@ -59,15 +59,19 @@ EOF
 # Install Calico Network Plugin
 #
 
-# curl https://docs.projectcalico.org/manifests/calico.yaml -O
-# kubectl apply -f calico.yaml
+curl https://docs.projectcalico.org/manifests/calico.yaml -O
+kubectl apply -f calico.yaml
 
+rm -f calico.yaml
 
-#
-# Installing Flannel Network Plugin
-#
+# #
+# # Installing Flannel Network Plugin
+# #
 
-kubectl apply -f /vagrant/scripts/kube-flannel.yml
+# echo "net.bridge.bridge-nf-call-iptables=1" | tee -a /etc/sysctl.conf
+# sysctl -p
+# kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/bc79dd1505b0c8681ece4de4c0d86c5cd2643275/Documentation/kube-flannel.yml
+# kubectl get nodes
 
 #
 # Install Metrics Server
@@ -125,7 +129,11 @@ EOF
 sudo -i -u vagrant bash << EOF
 kubectl delete secret regcred || true
 
-kubectl create secret docker-registry regcred --docker-server=$REPOSITORY_ADDR --docker-username=testuser --docker-password=testpassword
+# kubectl create secret docker-registry regcred --docker-server=$REPOSITORY_ADDR --docker-username=testuser --docker-password=testpassword
+
+docker login --username=testuser --password=testpassword $REPOSITORY_ADDR:5000
+
+kubectl create secret generic regcred --from-file=.dockerconfigjson=/home/vagrant/.docker/config.json --type=kubernetes.io/dockerconfigjson
 
 kubectl get secret regcred --output=yaml
 EOF
@@ -136,7 +144,7 @@ EOF
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-tee $config_path/configs/get-argocd-pwd.sh <<EOF
+tee $config_path/get-argocd-pwd.sh <<EOF
 # /bin/bash
 set -ex
 
