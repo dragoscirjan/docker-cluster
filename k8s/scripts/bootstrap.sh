@@ -3,7 +3,7 @@ set -ex
 
 REPOSITORY_ADDR="$1"
 
-KUBERNETES_VERSION="1.23.6-00"
+source $(dirname $0)/.env
 
 # #
 # # temporary SSH key
@@ -49,7 +49,7 @@ chmod 755 /usr/bin/yq
 # Docker install
 #
 
-bash $(dirname $0)/bootstrap_docker.sh $REPOSITORY_ADDR
+bash $(dirname $0)/bootstrap_docker.sh $REGISTRY_ADDR
 
 #
 # pre configure

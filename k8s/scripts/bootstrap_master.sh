@@ -17,7 +17,7 @@ ADVERTISE_ADDR="$2"
 # Install necessary packages
 #
 
-bash $(dirname $0)/bootstrap.sh $REPOSITORY_ADDR
+bash $(dirname $0)/bootstrap.sh $REGISTRY_ADDR
 
 #
 # Configure master
@@ -126,17 +126,7 @@ EOF
 # @see https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/1
 #
 
-sudo -i -u vagrant bash << EOF
-kubectl delete secret regcred || true
-
-# kubectl create secret docker-registry regcred --docker-server=$REPOSITORY_ADDR --docker-username=testuser --docker-password=testpassword
-
-docker login --username=testuser --password=testpassword $REPOSITORY_ADDR:5000
-
-kubectl create secret generic regcred --from-file=.dockerconfigjson=/home/vagrant/.docker/config.json --type=kubernetes.io/dockerconfigjson
-
-kubectl get secret regcred --output=yaml
-EOF
+sudo -i -u vagrant bash $config_path/k8s-configure-private-registry.sh
 
 #
 # Install ArgoCD

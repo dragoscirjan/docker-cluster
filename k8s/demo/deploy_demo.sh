@@ -1,4 +1,9 @@
 #! /bin/bash
+set -ex
+
+source $(dirname $0)/../scripts/.env
+
+config_path="/vagrant/configs"
 
 back_to=$(pwd)
 
@@ -12,26 +17,29 @@ fi
 # @see https://docs.docker.com/registry/deploying/
 #
 
-docker login $REGISTRY_ADDR:5000 -u testuser -p testpassword
+# docker login $REGISTRY_ADDR:5000 -u testuser -p testpassword
+docker login registry.$HOST_ROOT_FQDN:5000 -u testuser -p testpassword
 
 cd $(dirname $0)
 
 docker build -t py/app .
 
-docker tag py/app $REGISTRY_ADDR:5000/py-app
+# docker tag py/app $REGISTRY_ADDR:5000/py-app
+docker tag py/app registry.$HOST_ROOT_FQDN:5000/py-app
 
-docker push $REGISTRY_ADDR:5000/py-app
+# docker push $REGISTRY_ADDR:5000/py-app
+docker push registry.$HOST_ROOT_FQDN:5000/py-app
 
+# yq -i ".spec.template.spec.containers[0].image = \"$REGISTRY_ADDR:5000/py-app\"" ./py-app-deployment.yml
+yq -i ".spec.template.spec.containers[0].image = \"registry.$HOST_ROOT_FQDN:5000/py-app\"" ./py-app-deployment.yml
 
-# yq -i ".spec.selector.app = \"$REGISTRY_ADDR:5000/py-app\"" ./py-app-service.yml
-# yq -i ".spec.selector.matchLabels.app = \"$REGISTRY_ADDR:5000/py-app\"" ./py-app-deployment.yml
-# yq -i ".spec.template.metadata.labels.app = \"$REGISTRY_ADDR:5000/py-app\"" ./py-app-deployment.yml
-yq -i ".spec.template.spec.containers[0].image = \"$REGISTRY_ADDR:5000/py-app\"" ./py-app-deployment.yml
+kubectl apply -f $config_path/private-registry-credentials.yaml
+# kubectl apply -f $config_path/../scripts/private-registry-credentials-clear.yaml
 
-kubectl apply -f ./py-app-deployment.yml
+kubectl --insecure-skip-tls-verify apply -f ./py-app-deployment.yml
 kubectl get deployment
 
-kubectl apply -f ./py-app-service.yml
+kubectl --insecure-skip-tls-verify apply -f ./py-app-service.yml
 kubectl get service
 
 kubectl describe service py-app-service

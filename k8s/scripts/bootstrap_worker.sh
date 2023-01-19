@@ -17,7 +17,7 @@ REPOSITORY_ADDR="$1"
 # Install necessary packages
 #
 
-bash $(dirname $0)/bootstrap.sh $REPOSITORY_ADDR
+bash $(dirname $0)/bootstrap.sh $REGISTRY_ADDR
 
 #
 # Wait for master
@@ -53,10 +53,4 @@ EOF
 # Private registry (comment if not required)
 #
 
-sudo -i -u vagrant bash << EOF
-kubectl delete secret regcred || true
-
-kubectl create secret docker-registry regcred --docker-server=$REPOSITORY_ADDR --docker-username=testuser --docker-password=testpassword
-
-kubectl get secret regcred --output=yaml
-EOF
+# sudo -i -u vagrant bash $config_path/k8s-configure-private-registry.sh

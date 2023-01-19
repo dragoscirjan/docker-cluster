@@ -14,8 +14,9 @@ spec:
     spec:
       containers:
         - name: py-app
-          image: 172.16.8.102:5000/py-app
+          image: 172.16.8.101:5000/py-app
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
-    imagePullSecrets:
-      - name: regcred
+      imagePullSecrets:
+        - name: private-registry-credentials
