@@ -1,9 +1,15 @@
 #! /bin/bash
 set -ex
 
-REPOSITORY_ADDR="$1"
+REGISTRY_ADDR="$1"
 
 source $(dirname $0)/.env
+
+#
+# @see https://docs.docker.com/registry/deploying/
+#
+
+config_path="/vagrant/configs"
 
 # #
 # # temporary SSH key
@@ -50,6 +56,8 @@ chmod 755 /usr/bin/yq
 #
 
 bash $(dirname $0)/bootstrap_docker.sh $REGISTRY_ADDR
+
+cp $config_path/certs/leaf.crt /usr/local/share/ca-certificates/$HOST_ROOT_FQDN.crt
 
 #
 # pre configure

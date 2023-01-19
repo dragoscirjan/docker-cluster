@@ -1,7 +1,7 @@
 #! /bin/bash
 set -ex
 
-REPOSITORY_ADDR="$1"
+REGISTRY_ADDR="$1"
 
 source $(dirname $0)/.env
 
@@ -35,11 +35,11 @@ tee /etc/docker/daemon.json <<EOF
 EOF
 
 
-if [[ "$REGISTRY_ADDR" != "" ]]; then
-  cat /etc/docker/daemon.json | jq ". +{\"insecure-registries\" : [\"$REGISTRY_ADDR:5000\", \"registry.$HOST_ROOT_FQDN:5000\"]}" | tee /etc/docker/daemon.json
-else
-  cat /etc/docker/daemon.json | jq ". +{\"insecure-registries\" : [\"registry.$HOST_ROOT_FQDN:5000\"]}" | tee /etc/docker/daemon.json
-fi
+# if [[ "$REGISTRY_ADDR" != "" ]]; then
+#   cat /etc/docker/daemon.json | jq ". +{\"insecure-registries\" : [\"$REGISTRY_ADDR:5000\", \"registry.$HOST_ROOT_FQDN:5000\"]}" | tee /etc/docker/daemon.json
+# else
+#   cat /etc/docker/daemon.json | jq ". +{\"insecure-registries\" : [\"registry.$HOST_ROOT_FQDN:5000\"]}" | tee /etc/docker/daemon.json
+# fi
 
 systemctl daemon-reload
 systemctl enable docker

@@ -3,7 +3,7 @@ set -ex
 
 config_path="/vagrant/configs"
 
-REPOSITORY_ADDR="$1"
+REGISTRY_ADDR="$1"
 
 # ADVERTISE_ADDR="$2"
 

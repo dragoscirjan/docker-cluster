@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: py-app
-          image: 172.16.8.101:5000/py-app
+          image: registry.k8s.foo:5000/py-app
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

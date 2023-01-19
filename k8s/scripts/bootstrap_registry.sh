@@ -1,7 +1,7 @@
 #! /bin/bash
 set -ex
 
-REPOSITORY_ADDR="$1"
+REGISTRY_ADDR="$1"
 
 source $(dirname $0)/.env
 
@@ -56,6 +56,8 @@ bash $(dirname $0)/generate-ssc.sh \
   --fqdn registry.$HOST_ROOT_FQDN \
   --output $config_path/certs \
   --subj "/C=FR/ST=NoOne/L=NoOne/O=NoOne/OU=NoOne/CN=*.$HOST_ROOT_FQDN/emailAddress=noone@$HOST_ROOT_FQDN"
+
+cp $config_path/certs/leaf.crt /usr/local/share/ca-certificates/$HOST_ROOT_FQDN.crt
 
 #
 # Registry

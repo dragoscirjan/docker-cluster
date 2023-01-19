@@ -7,7 +7,9 @@ Vagrant.configure(2) do |config|
       s.vm.hostname = "k8s-#{i}"
       s.vm.network "private_network", ip: "172.16.8.10#{i}", netmask: "255.255.255.0", auto_config: true, virtualbox__intnet: "k8s-net"
       s.vm.network "public_network", use_dhcp_assigned_default_route: true, bridge: [
-        "wlp0s20f3" # Dell XPS 15 9510
+        "wlp0s20f3", # Dell XPS 15 9510,
+        "enp0s31f6", # Home LAN
+        "wlp3s0"     # Home Wifi
       ]
       s.vm.provider "virtualbox" do |v|
         v.name = "k8s-#{i}"

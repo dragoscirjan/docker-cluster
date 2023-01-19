@@ -33,6 +33,7 @@ docker push registry.$HOST_ROOT_FQDN:5000/py-app
 # yq -i ".spec.template.spec.containers[0].image = \"$REGISTRY_ADDR:5000/py-app\"" ./py-app-deployment.yml
 yq -i ".spec.template.spec.containers[0].image = \"registry.$HOST_ROOT_FQDN:5000/py-app\"" ./py-app-deployment.yml
 
+kubectl delete secret private-registry-credentials
 kubectl apply -f $config_path/private-registry-credentials.yaml
 # kubectl apply -f $config_path/../scripts/private-registry-credentials-clear.yaml
 
@@ -43,5 +44,9 @@ kubectl --insecure-skip-tls-verify apply -f ./py-app-service.yml
 kubectl get service
 
 kubectl describe service py-app-service
+
+kubectl get pods -A
+
+kubectl get pods -A | grep py-app- | head -n 1 | awk '{print $2}' | xargs kubectl describe pod
 
 cd $back_to
