@@ -5,9 +5,10 @@
 #
 
 Vagrant.configure(2) do |config|
+  config.env.enable # Enable vagrant-env(.env)
+  # puts "am gasit ip #{vm_ip}"
 
   (1..2).each do |i|
-    config.env.enable # Enable vagrant-env(.env)
     config.vm.define "k8s-#{i}" do |s|
       s.ssh.forward_agent = true
       s.vm.box = "ubuntu/focal64"

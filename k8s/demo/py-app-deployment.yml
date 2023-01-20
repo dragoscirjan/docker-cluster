@@ -14,9 +14,9 @@ spec:
     spec:
       containers:
         - name: py-app
-          image: registry.k8s.foo:5000/py-app
+          image: registry.k8s.foo:32410/py-app
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
       imagePullSecrets:
-        - name: private-registry-credentials
+        - name: registry-tls

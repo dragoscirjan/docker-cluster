@@ -340,39 +340,41 @@ EOF
 
 }
 
-function k8s_master_registry_certificate() {
+function k8s_master_configure_registry_certificate() {
   rm -rf $K8S_CONFIG_PATH/certs
   mkdir -p $K8S_CONFIG_PATH/certs
-  # bash $(dirname $0)/generate-ssc.sh \
-  #   --ip $ADVERTISE_ADDR \
-  #   --fqdn registry.$HOST_ROOT_FQDN \
-  #   --output $K8S_CONFIG_PATH/certs \
-  #   --subj "/C=FR/ST=NoOne/L=NoOne/O=NoOne/OU=NoOne/CN=*.$HOST_ROOT_FQDN/emailAddress=noone@$HOST_ROOT_FQDN"
-  openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-    -keyout $K8S_CONFIG_PATH/certs/leaf.key \
-    -out $K8S_CONFIG_PATH/certs/leaf.crt \
-    -subj "/CN=registry.$HOST_ROOT_FQDN" \
-    -addext "subjectAltName=DNS:registry.$HOST_ROOT_FQDN,DNS:*.registry.$HOST_ROOT_FQDN,IP:$ADVERTISE_ADDR"
+  
+  bash $(dirname $0)/generate-ssc.sh \
+    --ip $ADVERTISE_ADDR \
+    --fqdn registry.$HOST_ROOT_FQDN \
+    --output $K8S_CONFIG_PATH/certs \
+    --subj "/C=FR/ST=NoOne/L=NoOne/O=NoOne/OU=NoOne/CN=*.$HOST_ROOT_FQDN/emailAddress=noone@$HOST_ROOT_FQDN"
+  
+  # openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+  #   -keyout $K8S_CONFIG_PATH/certs/leaf.key \
+  #   -out $K8S_CONFIG_PATH/certs/leaf.crt \
+  #   -subj "/CN=registry.$HOST_ROOT_FQDN" \
+  #   -addext "subjectAltName=DNS:registry.$HOST_ROOT_FQDN,DNS:*.registry.$HOST_ROOT_FQDN,IP:$ADVERTISE_ADDR"
 
-  k8s_worker_registry_certificate
+  k8s_worker_configure_registry_certificate
 }
 
-function k8s_worker_registry_certificate() {
-  cp $K8S_CONFIG_PATH/certs/leaf.* /usr/local/share/ca-certificates/
+function k8s_worker_configure_registry_certificate() {
+  cp $K8S_CONFIG_PATH/certs/root.* /usr/local/share/ca-certificates/
   update-ca-certificates
 
   systemctl restart docker
   systemctl restart kubelet
 }
 
-function docker_registry_auth() {
+function k8s_master_configure_registry_auth() {
   mkdir -p $K8S_CONFIG_PATH/auth
 
   docker pull httpd:2
 
   docker run \
     --entrypoint htpasswd \
-    httpd:2 -Bbn testuser testpassword > $K8S_CONFIG_PATH/auth/htpasswd
+    httpd:2 -Bbn $DOCKER_REGISTRY_USERNAME $DOCKER_REGISTRY_PASSWORD > $K8S_CONFIG_PATH/auth/htpasswd
 }
 
 function k8s_registry_namespace() {
@@ -387,7 +389,7 @@ function k8s_registry_namespace() {
 # K8s Registry Deployment
 # @see https://kubernetes.io/docs/concepts/storage/persistent-volumes/
 #
-function k8s_registry_deployment_v2() {
+function k8s_master_create_registry_deployment_v1() {
 #   kubectl delete pvc docker-registry-persistent-volume -n docker-registry || true
 #   cat <<EOF | kubectl apply -f -
 # apiVersion: v1
@@ -451,20 +453,22 @@ spec:
         #     claimName: docker-registry-persistent-volume
         - name: certs
           secret:
-            secretName: docker-registry-tls-cert
+            secretName: docker-registry-auth-cert
 EOF
   kubectl get deployments -n docker-registry
   kubectl describe deployment registry -n docker-registry
   
   kubectl get pods -n docker-registry
-  kubectl get pods -n docker-registry  | grep registry | awk '{print $1}' | xargs kubectl describe pod -n docker-registry
+  kubectl get pods -n docker-registry  \
+    | grep registry | awk '{print $1}' \
+    | xargs kubectl describe pod -n docker-registry
 }
 
 #
 # K8s Registry Deployment
 # @see https://archive-docs.d2iq.com/dkp/kaptain/1.2.0/sdk/0.3.x/private-registries/
 #
-function k8s_registry_deployment_v2() {
+function k8s_master_create_registry_deployment_v2() {
   mkdir -p $K8S_CONFIG_PATH/registry
   kubectl delete deployment registry -n docker-registry || true
   cat <<EOF | kubectl apply -f -
@@ -508,15 +512,17 @@ spec:
             value: "/certs/leaf.crt"
           - name: REGISTRY_HTTP_TLS_KEY
             value: "/certs/leaf.key"
-          # - name: REGISTRY_AUTH
-          #   value: htpasswd
-          # - name: REGISTRY_AUTH_HTPASSWD_REALM
-          #   value: Registry Realm
-          # - name: REGISTRY_AUTH_HTPASSWD_PATH
-          #   value: /auth/htpasswd
+          - name: REGISTRY_AUTH
+            value: htpasswd
+          - name: REGISTRY_AUTH_HTPASSWD_REALM
+            value: Registry Realm
+          - name: REGISTRY_AUTH_HTPASSWD_PATH
+            value: /auth/htpasswd
           ports:
             - containerPort: 5000
           volumeMounts:
+          - name: auth-vol
+            mountPath: /auth
           - name: certs-vol
             mountPath: /certs
           - name: registry-vol
@@ -537,7 +543,7 @@ EOF
 #
 # registry service
 #
-function k8s_registry_service() {
+function k8s_master_create_registry_service() {
   kubectl delete service registry-service -n docker-registry || true
   cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -561,15 +567,41 @@ EOF
 }
 
 
-function k8s_add_master_registry_v2() {
-  k8s_master_registry_certificate
+function k8s_master_configure_registry() {
+  sleep 30
+
+  k8s_master_configure_registry_certificate
+  k8s_master_configure_registry_auth
   
   k8s_registry_namespace
 
-  # k8s_registry_deployment_v1
-  k8s_registry_deployment_v2
+  # k8s_master_create_registry_deployment_v1
+  k8s_master_create_registry_deployment_v2
 
-  k8s_registry_service
+  k8s_master_create_registry_service
+
+ 
+  REGISTRY_PORT=$(kubectl describe service registry-service -n docker-registry | grep NodePort | awk '{print $3}' | awk -F '/' '{print $1}')
+  
+  # https://jamesdefabia.github.io/docs/user-guide/kubectl/kubectl_create_secret_docker-registry/
+  kubectl delete secret registry-auth || true
+  kubectl create secret docker-registry registry-auth \
+    --docker-username=$DOCKER_REGISTRY_USERNAME \
+    --docker-password=$DOCKER_REGISTRY_PASSWORD \
+    --insecure-skip-tls-verify=true
+    # --from-file=registry-ca=$K8S_CONFIG_PATH/certs/root.crt \
+
+  kubectl get secret registry-auth \
+    --output=yaml \
+    > $K8S_CONFIG_PATH/registry-auth.yaml
+}
+
+function k8s_worker_configure_registry() {
+  sudo -i -u vagrant bash << EOF
+whoami
+kubectl delete secret registry-auth || true
+kubectl apply -f $K8S_CONFIG_PATH/registry-auth.yaml
+EOF
 }
 
 ######################################################
@@ -589,10 +621,12 @@ k8s_install
 
 if [ $DEPLOY_MASTER -eq 1 ]; then
   k8s_init_master
+  
   k8s_add_master_utils
-  # k8s_add_master_registry_v1
-  k8s_add_master_registry_v2
+  k8s_master_configure_registry
 else
   k8s_init_worker
-  k8s_worker_registry_certificate
+
+  k8s_worker_configure_registry_certificate
+  k8s_worker_configure_registry
 fi
