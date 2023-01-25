@@ -3,6 +3,8 @@
 # vagrant plugin install vagrant-env
 # to run this piece of s**t
 #
+# to cleanup: vagrant box list | cut -f 1 -d ' ' | xargs -L 1 vagrant box remove -f
+#
 
 Vagrant.configure(2) do |config|
   config.env.enable # Enable vagrant-env(.env)
@@ -11,7 +13,8 @@ Vagrant.configure(2) do |config|
   (1..2).each do |i|
     config.vm.define "k8s-#{i}" do |s|
       s.ssh.forward_agent = true
-      s.vm.box = "ubuntu/focal64"
+      s.vm.box = "ubuntu/jammy64" # 22.04
+      # s.vm.box = "ubuntu/focal64" # 20.04
 
       vm_ip = ENV['HOST_IP_RANGE']
       
@@ -19,11 +22,11 @@ Vagrant.configure(2) do |config|
       
       s.vm.network "private_network", ip: vm_ip.sub("*", (100 + i).to_s), netmask: "255.255.255.0", auto_config: true, virtualbox__intnet: "k8s-net"
       
-      s.vm.network "public_network", use_dhcp_assigned_default_route: true, bridge: [
-        "wlp0s20f3", # Dell XPS 15 9510,
-        "enp0s31f6", # Home LAN
-        "wlp3s0"     # Home Wifi
-      ]
+      # s.vm.network "public_network", use_dhcp_assigned_default_route: true, bridge: [
+      #   "wlp0s20f3", # Dell XPS 15 9510,
+      #   "enp0s31f6", # Home LAN
+      #   "wlp3s0"     # Home Wifi
+      # ]
       
       s.vm.provider "virtualbox" do |v|
         v.name = "k8s-#{i}"

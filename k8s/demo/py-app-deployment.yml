@@ -2,8 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: py-app-deployment
+  namespace: py-app
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: py-app
@@ -14,9 +15,10 @@ spec:
     spec:
       containers:
         - name: py-app
-          image: registry.k8s.foo:32410/py-app
-          imagePullPolicy: IfNotPresent
+          image: registry.k8s.foo:32699/py-app
           ports:
             - containerPort: 8000
+        - name: redis
+          image: redis:alpine
       imagePullSecrets:
-        - name: registry-tls
+        - name: registry-auth

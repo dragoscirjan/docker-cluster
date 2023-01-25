@@ -20,11 +20,12 @@ chmod 755 /usr/bin/yq
 #
 # parse options
 #
-
 IS_VERBOSE=0
 ADVERTISE_ADDR="$(ip --json a s | jq -r '.[] | if .ifname == "enp0s8" then .addr_info[] | if .family == "inet" then .local else empty end else empty end')"
 DEPLOY_MASTER=0
 DEPLOY_WORKER=0
+USE_CRI_O=0
+KUBADM_ADDITIONAL_ARGS=""
 
 POSITIONAL_ARGS=()
 
@@ -49,6 +50,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     -v|--verbose)
       IS_VERBOSE=1
+      shift # past argument
+      ;;
+    --use-cri-o)
+      USE_CRI_O=1
+      KUBADM_ADDITIONAL_ARGS="${KUBADM_ADDITIONAL_ARGS} --cri-socket=/var/run/crio/crio.sock"
       shift # past argument
       ;;
     -*|--*)
@@ -83,6 +89,46 @@ function write_hosts() {
 }
 
 #
+# Cri-o Install
+#
+
+function cri_o_install() {
+  # Create the .conf file to load the modules at bootup
+  cat <<EOF | sudo tee /etc/modules-load.d/crio.conf
+overlay
+br_netfilter
+EOF
+
+  sudo modprobe overlay
+  sudo modprobe br_netfilter
+
+
+  
+  @see https://scriptcrunch.com/install-cri-o-ubuntu/
+  
+
+  OS=xUbuntu_20.04
+  CRIO_VERSION=1.23
+  echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /"|sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
+  echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$CRIO_VERSION/$OS/ /" | tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:$CRIO_VERSION.list
+
+  curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:$CRIO_VERSION/$OS/Release.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/libcontainers.gpg add -
+  curl -L https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/Release.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/libcontainers.gpg add -
+
+  apt-get update -y
+  apt-get install cri-o cri-o-runc cri-tools -y
+
+  systemctl daemon-reload
+  systemctl enable crio --now
+  sudo systemctl restart crio
+  systemctl status crio
+
+  crictl info
+
+  echo
+}
+
+#
 # Docker install & configure
 #
 
@@ -106,31 +152,72 @@ EOF
 
   systemctl daemon-reload
   systemctl enable docker
-  systemctl restart docker
+  sudo systemctl restart docker
   # systemctl status docker
 
   usermod -g vagrant -G docker vagrant
 }
 
+#
+# Helm install
+#
+
+function helm_install() {
+  curl https://baltocdn.com/helm/signing.asc \
+    | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+  sudo apt-get install apt-transport-https --yes
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main" \
+    | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+  sudo apt-get update
+  sudo apt-get install helm -y
+}
+
+#
+# Wait for all pods to be ready
+#
+function k8s_wait_all_pods_ready() {
+  count=0
+  stop=0
+  while [ $stop -eq 0 ]; do
+    if kubectl get pods -A | grep "0/1" > /dev/null; then
+      echo "⚠   ($count) Pods not ready. Please wait ..."
+      
+      k8s_taint_nodes_if_needed
+      
+      sleep 10
+    else
+      echo "ⓘ   All pods ready."
+      stop=1
+    fi
+    count=$(($count + 1))
+    if [ $count -ge 100 ]; then exit 1; fi
+  done
+
+  echo
+}
+
+#
+# @link https://stackoverflow.com/questions/59484509/node-had-taints-that-the-pod-didnt-tolerate-error-when-deploying-to-kubernetes
+#
+function k8s_taint_nodes_if_needed() {
+  kubectl get pods -A | grep "0/1" | awk '{print $2 " -n " $1;}' | while read pod_log; do 
+    if kubectl describe pod $pod_log \
+      | grep "node(s) had taint {node-role.kubernetes.io/master: }, that the pod didn't tolerate" \
+      > /dev/null; then
+      for node in $(kubectl get nodes --selector='node-role.kubernetes.io/master' | awk 'NR>1 {print $1}' ); do
+        kubectl taint node $node node-role.kubernetes.io/master- || true
+      done
+      sleep 5
+      return
+    fi
+  done
+}
 
 #
 # K8s install
 #
 
 function k8s_install() {
-
-  #
-  # pre configure
-  #
-
-  # Create the .conf file to load the modules at bootup
-  cat <<EOF | sudo tee /etc/modules-load.d/crio.conf
-overlay
-br_netfilter
-EOF
-
-  sudo modprobe overlay
-  sudo modprobe br_netfilter
 
   # Set up required sysctl params, these persist across reboots.
   cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
@@ -141,34 +228,12 @@ EOF
 
   sudo sysctl --system
 
-
-  #
-  # @see https://scriptcrunch.com/install-cri-o-ubuntu/
-  #
-
-  OS=xUbuntu_20.04
-  CRIO_VERSION=1.23
-  echo "deb https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/ /"|sudo tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable.list
-  echo "deb http://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/$CRIO_VERSION/$OS/ /" | tee /etc/apt/sources.list.d/devel:kubic:libcontainers:stable:cri-o:$CRIO_VERSION.list
-
-  curl -L https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:$CRIO_VERSION/$OS/Release.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/libcontainers.gpg add -
-  curl -L https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/$OS/Release.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/libcontainers.gpg add -
-
-  apt-get update -y
-  apt-get install cri-o cri-o-runc cri-tools -y
-
-  systemctl daemon-reload
-  systemctl enable crio --now
-  systemctl restart crio
-  systemctl status crio
-
-  crictl info
-
   #
   # Kubectl install
   #
 
-  curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+  curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg \
+    https://packages.cloud.google.com/apt/doc/apt-key.gpg
 
   echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" \
     | tee /etc/apt/sources.list.d/kubernetes.list
@@ -179,10 +244,10 @@ EOF
 
   kubectl version --client && kubeadm version
 
-  systemctl daemon-reload
-  systemctl enable kubelet
-  systemctl restart kubelet
-  systemctl status kubelet
+  sudo systemctl daemon-reload
+  sudo systemctl enable kubelet
+  sudo systemctl restart kubelet
+  sudo systemctl status kubelet
 
   # enp0s8 => current network name
 
@@ -203,8 +268,7 @@ function k8s_init_master() {
       --apiserver-cert-extra-sans=$ADVERTISE_ADDR \
       --pod-network-cidr=192.168.0.0/16 \
       --node-name "$(hostname -s)" \
-      --cri-socket=/var/run/crio/crio.sock \
-      --ignore-preflight-errors Swap
+      --ignore-preflight-errors Swap $KUBADM_ADDITIONAL_ARGS
 
   #
   # Configure Local K8S
@@ -228,7 +292,7 @@ function k8s_init_master() {
 #! /bin/bash
 set -ex
 
-$(kubeadm token create --print-join-command) --cri-socket=/var/run/crio/crio.sock
+$(kubeadm token create --print-join-command) $KUBADM_ADDITIONAL_ARGS
 EOF
 
   sudo -i -u vagrant bash << EOF
@@ -262,38 +326,61 @@ EOF
 
 }
 
+function k8s_add_utils__calico() {
+  kubectl delete -f https://docs.projectcalico.org/manifests/calico.yaml || true
+
+  kubectl create -f https://docs.projectcalico.org/manifests/calico.yaml
+ 
+  k8s_wait_all_pods_ready
+
+  sleep 10
+
+  echo
+}
+
 #
-# K8s Master Utils
+# Installing Flannel Network Plugin
+# @link https://github.com/projectcalico/calico
 #
-function k8s_add_master_utils() {
-  #
-  # Install Calico Network Plugin
-  #
+function k8s_add_utils__flannel() {
+  yamlUrl="https://raw.githubusercontent.com/coreos/flannel/bc79dd1505b0c8681ece4de4c0d86c5cd2643275/Documentation/kube-flannel.yml"
 
-  curl https://docs.projectcalico.org/manifests/calico.yaml -O
-  kubectl apply -f calico.yaml
+  kubectl delete -f $yamlUrl || true
 
-  rm -f calico.yaml
+  prop="net.bridge.bridge-nf-call-iptables=1"
+  if ! cat /etc/sysctl.conf | grep $prop; then
+    echo $prop | tee -a /etc/sysctl.conf
+    sysctl -p
+  fi
+  
+  kubectl apply -f $yamlUrl
 
-  # #
-  # # Installing Flannel Network Plugin
-  # #
+  kubectl get nodes
 
-  # echo "net.bridge.bridge-nf-call-iptables=1" | tee -a /etc/sysctl.conf
-  # sysctl -p
-  # kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/bc79dd1505b0c8681ece4de4c0d86c5cd2643275/Documentation/kube-flannel.yml
-  # kubectl get nodes
+  echo
+}
 
-  #
-  # Install Metrics Server
-  #
+#
+# @link https://cert-manager.io/docs/
+#
+function k8s_add_utils__cert_manager() {
+  helm delete cert-manager || true
+  kubectl delete -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.crds.yaml || true
+  kubectl delete namespace cert-manager || true
 
-  kubectl apply -f https://raw.githubusercontent.com/scriptcamp/kubeadm-scripts/main/manifests/metrics-server.yaml
+  kubectl create namespace cert-manager
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.crds.yaml
+  helm repo add jetstack https://charts.jetstack.io
+  helm install cert-manager --namespace cert-manager \
+    --version v$K8S_CERT_MANAGER_VERSION jetstack/cert-manager || true
 
-  #
-  # Install Kubernetes Dashboard
-  #
+  echo
+}
 
+#
+# Install Kubernetes Dashboard
+#
+function k8s_add_utils__dashboard() {
   kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.5.1/aio/deploy/recommended.yaml
 
   # Create Dashboard User
@@ -321,15 +408,25 @@ subjects:
   namespace: kubernetes-dashboard
 EOF
 
-  sleep 10
+  kubectl -n kubernetes-dashboard get secret \
+    "$(kubectl -n kubernetes-dashboard get sa/admin-user -o jsonpath="{.secrets[0].name}")" \
+    -o go-template="{{.data.token | base64decode}}" >> $K8S_CONFIG_PATH/token
 
-  kubectl -n kubernetes-dashboard get secret "$(kubectl -n kubernetes-dashboard get sa/admin-user -o jsonpath="{.secrets[0].name}")" -o go-template="{{.data.token | base64decode}}" >> $K8S_CONFIG_PATH/token
+  echo
+}
 
-  #
-  # Install ArgoCD
-  #
+#
+# Install ArgoCD
+#
+function k8s_add_utils__argo_cd() {
+  kubectl delete -n argocd -f \
+    https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml || true
+  kubectl delete namespace argocd || true
+
   kubectl create namespace argocd
   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+  k8s_wait_all_pods_ready
 
   tee $K8S_CONFIG_PATH/get-argocd-pwd.sh <<EOF
 # /bin/bash
@@ -338,9 +435,130 @@ set -ex
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
 EOF
 
+  echo
 }
 
-function k8s_master_configure_registry_certificate() {
+#
+# K8s Master Utils
+#
+function k8s_add_utils() {
+  # # TODO: create option to select between calico and flannel
+  if [ $K8S_USE_FLANNEL -eq 0 ]; then
+    k8s_add_utils__calico
+  else
+    k8s_add_utils__flannel
+  fi
+
+  if [ $K8S_USE_REGISTRY_WITH_CERT_MANAGER -eq 1 ]; then
+    k8s_add_utils__cert_manager
+  fi
+
+  k8s_add_utils__dashboard
+
+  k8s_add_utils__argo_cd
+
+  echo
+
+}
+
+function k8s_registry_namespace() {
+  #
+  # name space
+  #
+  kubectl delete namespace $K8S_REGISTRY_NAMESPACE || true
+  kubectl create namespace $K8S_REGISTRY_NAMESPACE
+}
+
+#
+# @link https://cert-manager.io/docs/configuration/selfsigned/
+#
+function k8s_registry_certificate_cert_manager() {
+  kubectl delete -f /tmp/cert.yaml || true
+  kubectl delete -f /tmp/ca.yaml || true
+  
+  
+  # keep secrets clean also
+  kubectl get secret -n $K8S_REGISTRY_NAMESPACE \
+    | grep -v NAME | awk '{print $1}' \
+    | xargs kubectl delete secret -n $K8S_REGISTRY_NAMESPACE || true
+
+
+  # @link https://cert-manager.io/docs/reference/api-docs/#cert-manager.io/v1.Issuer
+  # @link https://cert-manager.io/docs/reference/api-docs/#cert-manager.io/v1.Certificate
+  cat > /tmp/ca.yaml <<EOF
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: registry-ca-issuer
+  namespace: $K8S_REGISTRY_NAMESPACE
+spec:
+  # TODO: Add passphrase to CA
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: registry-ca-certificate
+  namespace: $K8S_REGISTRY_NAMESPACE
+spec:
+  secretName: registry-ca-secret
+  issuerRef:
+    name: registry-ca-issuer
+    kind: Issuer
+  commonName: registry-ca
+  isCA: true
+EOF
+
+  # @link https://cert-manager.io/docs/reference/api-docs/#cert-manager.io/v1.Certificate
+  cat > /tmp/cert.yaml <<EOF
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: registry-certificate
+  namespace: $K8S_REGISTRY_NAMESPACE
+spec:
+  secretName: registry-com-tls
+  issuerRef:
+    name: registry-ca-issuer
+    kind: Issuer
+  commonName: registry.$HOST_ROOT_FQDN
+  dnsNames:
+    - registry.$HOST_ROOT_FQDN
+  ipAddresses:
+    - $ADVERTISE_ADDR
+  subject:
+    organizations:
+      - NoOne
+    organizationalUnits:
+      - NoOne
+    countries:
+      - FR
+    localities:
+      - NoOne
+EOF
+
+  kubectl apply -f /tmp/ca.yaml
+  kubectl apply -f /tmp/cert.yaml
+
+  rm -rf $K8S_CONFIG_PATH/certs
+  mkdir -p $K8S_CONFIG_PATH/certs
+
+  kubectl get secret -n docker-registry registry-ca-secret \
+    -o jsonpath='{.data.ca\.crt}' | base64 -d \
+    > $K8S_CONFIG_PATH/certs/root.crt
+
+  kubectl get secret -n docker-registry registry-ca-secret \
+    -o jsonpath='{.data.tls\.crt}' | base64 -d \
+    >> $K8S_CONFIG_PATH/certs/root.crt
+
+  kubectl get secret -n docker-registry registry-ca-secret \
+    -o jsonpath='{.data.tls\.key}' | base64 -d \
+    > $K8S_CONFIG_PATH/certs/root.key
+
+  echo
+}
+
+function k8s_registry_certificate_openssl() {
   rm -rf $K8S_CONFIG_PATH/certs
   mkdir -p $K8S_CONFIG_PATH/certs
   
@@ -349,25 +567,37 @@ function k8s_master_configure_registry_certificate() {
     --fqdn registry.$HOST_ROOT_FQDN \
     --output $K8S_CONFIG_PATH/certs \
     --subj "/C=FR/ST=NoOne/L=NoOne/O=NoOne/OU=NoOne/CN=*.$HOST_ROOT_FQDN/emailAddress=noone@$HOST_ROOT_FQDN"
-  
-  # openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
-  #   -keyout $K8S_CONFIG_PATH/certs/leaf.key \
-  #   -out $K8S_CONFIG_PATH/certs/leaf.crt \
-  #   -subj "/CN=registry.$HOST_ROOT_FQDN" \
-  #   -addext "subjectAltName=DNS:registry.$HOST_ROOT_FQDN,DNS:*.registry.$HOST_ROOT_FQDN,IP:$ADVERTISE_ADDR"
-
-  k8s_worker_configure_registry_certificate
+    
+  echo
 }
 
-function k8s_worker_configure_registry_certificate() {
-  cp $K8S_CONFIG_PATH/certs/root.* /usr/local/share/ca-certificates/
-  update-ca-certificates
+function k8s_registry_certificate() {
+  if [ $K8S_REGISTRY_CERT_WITH_CERT_MANAGER -eq 1 ]; then
+    k8s_registry_certificate_cert_manager
+  else
+    k8s_registry_certificate_openssl
+  fi
 
-  systemctl restart docker
-  systemctl restart kubelet
+  k8s_registry_publish_certificate
+
+  echo 
 }
 
-function k8s_master_configure_registry_auth() {
+function k8s_registry_publish_certificate() {
+  # TODO: will need adaptation for cert-manager
+
+  sudo cp $K8S_CONFIG_PATH/certs/root.* /usr/local/share/ca-certificates/
+  sudo update-ca-certificates
+
+  sudo systemctl restart docker
+  sudo systemctl restart kubelet
+
+  k8s_wait_all_pods_ready
+
+  echo
+}
+
+function k8s_registry_auth() {
   mkdir -p $K8S_CONFIG_PATH/auth
 
   docker pull httpd:2
@@ -377,106 +607,21 @@ function k8s_master_configure_registry_auth() {
     httpd:2 -Bbn $DOCKER_REGISTRY_USERNAME $DOCKER_REGISTRY_PASSWORD > $K8S_CONFIG_PATH/auth/htpasswd
 }
 
-function k8s_registry_namespace() {
-  #
-  # name space
-  #
-  kubectl delete namespace docker-registry || true
-  kubectl create namespace docker-registry
-}
-
-#
-# K8s Registry Deployment
-# @see https://kubernetes.io/docs/concepts/storage/persistent-volumes/
-#
-function k8s_master_create_registry_deployment_v1() {
-#   kubectl delete pvc docker-registry-persistent-volume -n docker-registry || true
-#   cat <<EOF | kubectl apply -f -
-# apiVersion: v1
-# kind: PersistentVolumeClaim
-# metadata:
-#   name: docker-registry-persistent-volume
-#   namespace: docker-registry
-# spec:
-#   accessModes:
-#     - ReadWriteOnce
-#   storageClassName: longhorn
-#   resources:
-#     requests:
-#       storage: 15Gi
-# EOF
-#   kubectl get pvc -n docker-registry
-#   kubectl describe pvc docker-registry-persistent-volume -n docker-registry
-
-  #
-  # registry deployment
-  #
-  kubectl delete deployment registry -n docker-registry || true
-  cat <<EOF | kubectl apply -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: registry
-  namespace: docker-registry
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: registry
-  template:
-    metadata:
-      labels:
-        app: registry
-        name: registry
-    spec:
-      nodeSelector:
-        node-type: worker
-      containers:
-      - name: registry
-        image: registry:2
-        ports:
-        - containerPort: 5000
-        env:
-        - name: REGISTRY_HTTP_TLS_CERTIFICATE
-          value: "/certs/tls.crt"
-        - name: REGISTRY_HTTP_TLS_KEY
-          value: "/certs/tls.key"
-        volumeMounts:
-        # - name: lv-storage
-        #   mountPath: /var/lib/registry
-        #   subPath: registry
-        - name: certs
-          mountPath: /certs
-      volumes:
-        # - name: lv-storage
-        #   persistentVolumeClaim:
-        #     claimName: docker-registry-persistent-volume
-        - name: certs
-          secret:
-            secretName: docker-registry-auth-cert
-EOF
-  kubectl get deployments -n docker-registry
-  kubectl describe deployment registry -n docker-registry
-  
-  kubectl get pods -n docker-registry
-  kubectl get pods -n docker-registry  \
-    | grep registry | awk '{print $1}' \
-    | xargs kubectl describe pod -n docker-registry
-}
-
 #
 # K8s Registry Deployment
 # @see https://archive-docs.d2iq.com/dkp/kaptain/1.2.0/sdk/0.3.x/private-registries/
 #
-function k8s_master_create_registry_deployment_v2() {
+function k8s_registry_deployment_v2() {
   mkdir -p $K8S_CONFIG_PATH/registry
-  kubectl delete deployment registry -n docker-registry || true
+
+  kubectl delete deployment registry -n $K8S_REGISTRY_NAMESPACE || true
+  
   cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: registry
-  namespace: docker-registry
+  namespace: $K8S_REGISTRY_NAMESPACE
   labels:
     app: registry
 spec:
@@ -528,11 +673,34 @@ spec:
           - name: registry-vol
             mountPath: /var/lib/registry
 EOF
-  kubectl get deployments -n docker-registry
-  kubectl describe deployment registry -n docker-registry
+
+  kubectl get deployments -n $K8S_REGISTRY_NAMESPACE
+  kubectl describe deployment registry -n $K8S_REGISTRY_NAMESPACE
   
-  kubectl get pods -n docker-registry
-  kubectl get pods -n docker-registry  | grep registry | awk '{print $1}' | xargs kubectl describe pod -n docker-registry
+  kubectl get pods -n $K8S_REGISTRY_NAMESPACE
+  kubectl get pods -n $K8S_REGISTRY_NAMESPACE  | grep registry | awk '{print $1}' \
+    | xargs kubectl describe pod -n $K8S_REGISTRY_NAMESPACE
+
+  count=0
+  stop=0
+  while [ $stop -eq 0 ]; do
+    if kubectl get pods -n $K8S_REGISTRY_NAMESPACE  \
+      | grep registry | awk '{print $1}' \
+      | xargs kubectl describe pod -n $K8S_REGISTRY_NAMESPACE \
+      | grep "Started container registry" > /dev/null; then
+
+      echo "ⓘ   Registry started."
+      stop=1
+    else
+      echo "⚠   ($count) Registry not started yet. Please wait..."
+      k8s_taint_nodes_if_needed
+      sleep 10
+    fi
+    count=$(($count + 1))
+    if [ $count -ge 100 ]; then exit 1; fi
+  done
+
+  echo
 }
 
 #
@@ -543,14 +711,14 @@ EOF
 #
 # registry service
 #
-function k8s_master_create_registry_service() {
-  kubectl delete service registry-service -n docker-registry || true
+function k8s_registry_service() {
+  kubectl delete service registry -n $K8S_REGISTRY_NAMESPACE || true
   cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
 metadata:
-  name: registry-service
-  namespace: docker-registry
+  name: registry
+  namespace: $K8S_REGISTRY_NAMESPACE
 spec:
   selector:
     app: registry
@@ -562,46 +730,40 @@ spec:
       targetPort: 5000
   loadBalancerIP: $ADVERTISE_ADDR
 EOF
-  kubectl get services -n docker-registry
-  kubectl describe service registry-service -n docker-registry
+  kubectl get services -n $K8S_REGISTRY_NAMESPACE
+  kubectl describe service registry -n $K8S_REGISTRY_NAMESPACE
+
+  sleep 5
+
+  REGISTRY_PORT=$(kubectl describe service registry -n $K8S_REGISTRY_NAMESPACE | grep NodePort | awk '{print $3}' | awk -F '/' '{print $1}')
+
+  sudo -i -u vagrant bash <<EOF
+docker login registry.$HOST_ROOT_FQDN:$REGISTRY_PORT \
+  -u $DOCKER_REGISTRY_USERNAME -p $DOCKER_REGISTRY_PASSWORD
+EOF
 }
 
 
-function k8s_master_configure_registry() {
+function k8s_registry() {
   sleep 30
-
-  k8s_master_configure_registry_certificate
-  k8s_master_configure_registry_auth
   
   k8s_registry_namespace
 
-  # k8s_master_create_registry_deployment_v1
-  k8s_master_create_registry_deployment_v2
+  k8s_registry_certificate
+  k8s_registry_auth
 
-  k8s_master_create_registry_service
+  # # k8s_registry_deployment_v1
+  k8s_registry_deployment_v2
 
- 
-  REGISTRY_PORT=$(kubectl describe service registry-service -n docker-registry | grep NodePort | awk '{print $3}' | awk -F '/' '{print $1}')
-  
-  # https://jamesdefabia.github.io/docs/user-guide/kubectl/kubectl_create_secret_docker-registry/
-  kubectl delete secret registry-auth || true
-  kubectl create secret docker-registry registry-auth \
-    --docker-username=$DOCKER_REGISTRY_USERNAME \
-    --docker-password=$DOCKER_REGISTRY_PASSWORD \
-    --insecure-skip-tls-verify=true
-    # --from-file=registry-ca=$K8S_CONFIG_PATH/certs/root.crt \
+  k8s_registry_service
 
-  kubectl get secret registry-auth \
-    --output=yaml \
-    > $K8S_CONFIG_PATH/registry-auth.yaml
+  echo
 }
 
-function k8s_worker_configure_registry() {
-  sudo -i -u vagrant bash << EOF
-whoami
-kubectl delete secret registry-auth || true
-kubectl apply -f $K8S_CONFIG_PATH/registry-auth.yaml
-EOF
+function k8s_registry__worker() {
+  k8s_registry_publish_certificate
+
+  echo
 }
 
 ######################################################
@@ -615,18 +777,24 @@ sudo swapoff -a
 
 write_hosts
 
-docker_install
+
+if [ $USE_CRI_O -eq 1]; then
+  cri_o_install
+else
+  docker_install
+fi
 
 k8s_install
+
+helm_install
 
 if [ $DEPLOY_MASTER -eq 1 ]; then
   k8s_init_master
   
-  k8s_add_master_utils
-  k8s_master_configure_registry
+  k8s_add_utils
+  k8s_registry
 else
   k8s_init_worker
 
-  k8s_worker_configure_registry_certificate
-  k8s_worker_configure_registry
+  k8s_registry__worker
 fi
