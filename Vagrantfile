@@ -6,7 +6,7 @@ cluster_vm_name = ENV['CLUSTER_VM_NAME'] || "cluster"
 def increment_ip_address(ip_address = ENV['CLUSTER_IP_RANGE'] || "172.16.8.100", increment = 0)
   # Split the IP address into chunks
   chunks = ip_address.split('.')
-  
+
   # Ensure there are four octets in the IP address
   if chunks.length != 4
     return "Invalid IP address."
@@ -43,7 +43,7 @@ Vagrant.configure(2) do |config|
       #   "enp0s31f6", # Home LAN
       #   "wlp3s0"     # Home Wifi
       # ]
-      
+
       s.vm.provider "virtualbox" do |v|
         v.name = "#{cluster_vm_name}-#{i}"
         v.cpus = 2
@@ -53,17 +53,17 @@ Vagrant.configure(2) do |config|
 
       if i == 1
         s.vm.provision :shell do |c|
-          c.inline = "bash /vagrant/scripts/registry.sh $1"
+          c.inline = "bash /vagrant/bootstrap/bootstrap.sh -v --registry --registry-address $1"
           c.args = [increment_ip_address(cluster_ip_range, 1)]
         end
       elsif i == 2
         s.vm.provision :shell do |c|
-          c.inline = "bash /vagrant/bootstrap/#{cluster_type}/master.sh -r $1 -a $2"
+          c.inline = "bash /vagrant/bootstrap/bootstrap.sh -v --master --cluster #{cluster_type} -r $1 -a $2"
           c.args = [increment_ip_address(cluster_ip_range, 1), increment_ip_address(cluster_ip_range, i)]
         end
       else
         s.vm.provision :shell do |c|
-          c.inline = "bash /vagrant/bootstrap/#{cluster_type}/master.sh -r $1 -a $2 $3"
+          c.inline = "bash /vagrant/bootstrap/bootstrap.sh -v --worker --cluster #{cluster_type} -r $1 -a $2 $3"
           c.args = ["172.16.8.101", "172.16.8.102", "172.16.8.10#{i}"]
         end
       end

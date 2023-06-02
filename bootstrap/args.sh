@@ -1,23 +1,30 @@
 #! /bin/bash
-source $(dirname $0)/../env.sh
+source $CLUSTER_ENVSH_PATH/env.sh
 
 do_help() {
   echo "Usage: script-name [options]"
   echo "Options:"
   echo "  -a, --advertise-address <address>    Set the advertise address (default: $CLUSTER_IP_MASTER)"
   echo "  --advertise-address=<address>        Set the advertise address"
-  echo "  --registry-address <address>         Set the registry address (default: $CLUSTER_IP_REGISTRY)"
-  echo "  -r, --registry-address=<address>     Set the registry address"
+  echo "  --deploy-registry                    Deploy docker registry"
+  echo "  -r, --registry-address <address>     Set the registry address (default: $CLUSTER_IP_REGISTRY)"
+  echo "  --registry-address=<address>         Set the registry address"
   echo "  -h, --help                           Show help information"
 }
 
 advertiseAddr=$CLUSTER_IP_MASTER
 registryAddr=$CLUSTER_IP_REGISTRY
+deployRegistry=0
 
 POSITIONAL_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --deploy-registry)
+      deployRegistry=1
+      shift # past argument
+      shift # past value
+      ;;
     -a|--advertise-address)
       advertiseAddr="$2"
       shift # past argument
