@@ -110,7 +110,7 @@ main() {
 
   source $(dirname "$0")/lib/docker.sh
   deploy_docker
-  if [[ $deployRegistry -eq 1 ]]; then deploy_docker_registry ; fi
+  if [[ $deployRegistry -eq 1 ]]; then deploy_docker_registry; test_docker_registry; fi
 
   # source $(dirname "$0")/lib/cluster/${clusterType}.sh
   # [[ $deployMaster -eq 1 ]] && deploy_master

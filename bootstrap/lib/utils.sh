@@ -14,6 +14,8 @@ ERROR_CODE_MISSING_OPENSSL=2
 
 # Utils install
 deploy_utils() {
+  printf "%s\n" "$ETC_HOSTS" >> /etc/hosts
+
   apt-get update
   apt-get install -y \
       curl \

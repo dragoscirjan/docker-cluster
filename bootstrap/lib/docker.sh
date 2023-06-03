@@ -23,7 +23,7 @@ deploy_docker_registry() {
 
   docker ps -a | grep httpd:2 | awk '{ print $1 }' | xargs docker rm -f || true
 
-  # Registry
+  # registry
 
   docker run -d \
     -p 5000:5000 \
@@ -37,4 +37,52 @@ deploy_docker_registry() {
     -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/leaf.crt \
     -e REGISTRY_HTTP_TLS_KEY=/certs/leaf.key \
     registry:2
+}
+
+# test docker registry authentication
+test_docker_registry() {
+  cat >> /tmp/Dockerfile <<EOF
+# syntax=docker/dockerfile:1
+FROM python:3.4-alpine
+ADD . /code
+WORKDIR /code
+RUN pip install -r requirements.txt
+CMD ["python", "app.py"]
+EOF
+
+  cat >> /tmp/app.py <<EOF
+from flask import Flask
+from redis import Redis
+from socket import gethostname
+
+
+app = Flask(__name__)
+redis = Redis(host='redis', port=6379)
+
+@app.route('/')
+def hello():
+    count = redis.incr('hits')
+    return 'Hello World! I have been seen, on {}, {} times.\n'.format(gethostname(), count)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8000, debug=True)
+EOF
+
+  cat >> /tmp/requirements.txt <<EOF
+flask
+redis
+EOF
+
+  # docker login $registryAddr:5000 -u testuser -p testpassword
+  docker login registry.$CLUSTER_FQDN_ROOT:5000 -u testuser -p testpassword
+
+  cd $(dirname $0)
+
+  docker build -t py/app /tmp
+
+  # docker tag py/app $registryAddr:5000/py-app
+  docker tag py/app registry.$CLUSTER_FQDN_ROOT:5000/py-app
+
+  # docker push $registryAddr:5000/py-app
+  docker push registry.$CLUSTER_FQDN_ROOT:5000/py-app
 }
