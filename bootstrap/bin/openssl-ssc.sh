@@ -3,7 +3,7 @@ echo $@ | egrep "\-v" > /dev/null && set -ex
 
 fqdns=("localhost")
 ips=("127.0.0.1")
-rootPassword='testpassword'
+rootPassword='$DOCKER_REGISTRY_PASS'
 output='./cert'
 subj="/C=IL/OU=RND/L=Antarctica/ST=PT/O=FooCom/CN=FooComSelfSigned"
 verbose=0

@@ -31,7 +31,7 @@ end
 
 Vagrant.configure(2) do |config|
 
-  (1..cluster_size).each do |i|
+  (1..cluster_size.to_i).each do |i|
     config.vm.define "#{cluster_vm_name}-#{i}" do |s|
       s.ssh.forward_agent = true
       s.vm.box = "ubuntu/focal64"
@@ -61,9 +61,12 @@ Vagrant.configure(2) do |config|
           c.inline = "bash /vagrant/bootstrap/bootstrap.sh -v --master --cluster #{cluster_type} -r $1 -a $2"
           c.args = [increment_ip_address(cluster_ip_range, 1), increment_ip_address(cluster_ip_range, i)]
         end
+        # s.vm.provision :shell do |c|
+        #   c.inline = "bash /vagrant/bootstrap/bootstrap.sh -v --test-cluster"
+        # end
       else
         s.vm.provision :shell do |c|
-          c.inline = "bash /vagrant/bootstrap/bootstrap.sh -v --worker --cluster #{cluster_type} -r $1 -a $2 $3"
+          c.inline = "bash /vagrant/bootstrap/bootstrap.sh -v --worker #{i} --cluster #{cluster_type} -r $1 -a $2 $3"
           c.args = ["172.16.8.101", "172.16.8.102", "172.16.8.10#{i}"]
         end
       end

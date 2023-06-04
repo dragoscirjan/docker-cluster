@@ -1,2 +1,3 @@
-*/.vagrant
-*/.workers
+.vagrant
+.workers
+.env

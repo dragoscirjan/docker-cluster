@@ -13,8 +13,8 @@
 
 # kubectl delete secret private-registry-credentials || true
 
-# # docker login --username=testuser --password=testpassword $REGISTRY_ADDR:5000
-# docker login --username=testuser --password=testpassword registry.$CLUSTER_FQDN_ROOT:5000
+# # docker login --username=$DOCKER_REGISTRY_USER --password=$DOCKER_REGISTRY_PASS $REGISTRY_ADDR:5000
+# docker login --username=$DOCKER_REGISTRY_USER --password=$DOCKER_REGISTRY_PASS registry.$CLUSTER_FQDN_ROOT:5000
 
 # kubectl create secret generic private-registry-credentials --from-file=.dockerconfigjson=/home/vagrant/.docker/config.json --type=kubernetes.io/dockerconfigjson --from-file=registry-ca=$WORKERS_CONFIG_PATH/certs/root.crt
 

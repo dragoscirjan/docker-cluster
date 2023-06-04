@@ -10,7 +10,9 @@ check_binary() {
   fi
 }
 
-ERROR_CODE_MISSING_OPENSSL=2
+EXIT_CODE_MISSING_OPENSSL=2
+
+EXIT_CODE_CLUSTER_TEST_FAILED=155
 
 # Utils install
 deploy_utils() {
@@ -31,7 +33,7 @@ deploy_utils() {
 
 # Certificate
 deploy_certificate() {
-  check_binary openssl $ERROR_CODE_MISSING_OPENSSL
+  check_binary openssl $EXIT_CODE_MISSING_OPENSSL
 
   mkdir -p $WORKERS_CONFIG_PATH
 
@@ -47,4 +49,5 @@ deploy_certificate() {
   fi
 
   cp $rootCert /usr/local/share/ca-certificates/$CLUSTER_FQDN_ROOT.crt
+  update-ca-certificates
 }

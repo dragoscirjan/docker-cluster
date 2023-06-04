@@ -19,7 +19,7 @@ deploy_docker_registry() {
 
   docker run \
     --entrypoint htpasswd \
-    httpd:2 -Bbn testuser testpassword > $WORKERS_CONFIG_PATH/auth/htpasswd
+    httpd:2 -Bbn $DOCKER_REGISTRY_USER $DOCKER_REGISTRY_PASS > $WORKERS_CONFIG_PATH/auth/htpasswd
 
   docker ps -a | grep httpd:2 | awk '{ print $1 }' | xargs docker rm -f || true
 
@@ -37,6 +37,42 @@ deploy_docker_registry() {
     -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/leaf.crt \
     -e REGISTRY_HTTP_TLS_KEY=/certs/leaf.key \
     registry:2
+}
+
+# register docker registry into cluster machines
+register_docker_registry() {
+  echo "Writing docker config is not required"
+#   # Check if the registry is reachable
+#   if curl -s -I "https://registry.${CLUSTER_FQDN_ROOT}:5000" | grep -q "200" > /dev/null; then
+#     # make sure docker folder exists
+#     mkdir -p ~/.docker
+#     # calculate credentials
+#     registryBase64Credentials=$(echo -n "${DOCKER_REGISTRY_USER}:${DOCKER_REGISTRY_PASS}" | base64)
+#     # Check if the Docker configuration file exists
+#     if [ ! -f ~/.docker/config.json ]; then
+#       # Create the Docker configuration file and populate it with the auths
+#       cat > ~/.docker/config.json <<EOF
+# {
+#   "auths": {
+#     "registry.${CLUSTER_FQDN_ROOT}:5000": {
+#       "auth": "$registryBase64Credentials"
+#     }
+#   }
+# }
+# EOF
+#     else
+#       # Modify the Docker configuration file using jq
+#       jq --arg auth "$registryBase64Credentials" \
+#         '.auths += { "'registry.${CLUSTER_FQDN_ROOT}:5000'": { "auth": $auth } }' \
+#         ~/.docker/config.json > ~/.docker/config.json.tmp && \
+#         mv ~/.docker/config.json.tmp ~/.docker/config.json
+#     fi
+
+#     echo "Docker configuration file updated successfully."
+#   else
+#     echo "Registry is not reachable or does not respond with a 200 status."
+#   fi
+
 }
 
 # test docker registry authentication
@@ -73,8 +109,8 @@ flask
 redis
 EOF
 
-  # docker login $registryAddr:5000 -u testuser -p testpassword
-  docker login registry.$CLUSTER_FQDN_ROOT:5000 -u testuser -p testpassword
+  # docker login $registryAddr:5000 -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASS
+  docker login registry.$CLUSTER_FQDN_ROOT:5000 -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASS
 
   cd $(dirname $0)
 
